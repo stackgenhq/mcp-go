@@ -153,7 +153,7 @@ func TestMCPServer_Tools(t *testing.T) {
 		validate              func(*testing.T, []mcp.JSONRPCNotification, mcp.JSONRPCMessage)
 	}{
 		{
-			name: "SetTools sends no notifications/tools/list_changed without active sessions",
+			name: "SetTools sends no notifications/tools/list_changed without active sessionizer",
 			action: func(t *testing.T, server *MCPServer, notificationChannel chan mcp.JSONRPCNotification) {
 				server.SetTools(ServerTool{
 					Tool: mcp.NewTool("test-tool-1"),
@@ -216,7 +216,7 @@ func TestMCPServer_Tools(t *testing.T) {
 					})
 					require.NoError(t, err)
 				}
-				// also let's register inactive sessions
+				// also let's register inactive sessionizer
 				for i := range 5 {
 					err := server.RegisterSession(&fakeSession{
 						sessionID:           fmt.Sprintf("test%d", i+5),

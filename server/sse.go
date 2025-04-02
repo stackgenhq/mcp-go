@@ -167,7 +167,7 @@ func (s *SSEServer) Start(addr string) error {
 	return s.srv.ListenAndServe()
 }
 
-// Shutdown gracefully stops the SSE server, closing all active sessions
+// Shutdown gracefully stops the SSE server, closing all active sessionizer
 // and shutting down the HTTP server.
 func (s *SSEServer) Shutdown(ctx context.Context) error {
 	if s.srv != nil {
