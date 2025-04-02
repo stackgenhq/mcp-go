@@ -416,7 +416,7 @@ func (s *MCPServer) AddTools(tools ...ServerTool) {
 	}
 	s.mu.Unlock()
 
-	// Send notification to all initialized sessionizer
+	// Send notification to all initialized sessions
 	s.sendNotificationToAllClients("notifications/tools/list_changed", nil)
 }
 
@@ -436,7 +436,7 @@ func (s *MCPServer) DeleteTools(names ...string) {
 	}
 	s.mu.Unlock()
 
-	// Send notification to all initialized sessionizer
+	// Send notification to all initialized sessions
 	s.sendNotificationToAllClients("notifications/tools/list_changed", nil)
 }
 

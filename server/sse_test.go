@@ -122,7 +122,7 @@ func TestSSEServer(t *testing.T) {
 		}
 	})
 
-	t.Run("Can handle multiple sessionizer", func(t *testing.T) {
+	t.Run("Can handle multiple sessions", func(t *testing.T) {
 		mcpServer := NewMCPServer("test", "1.0.0",
 			WithResourceCapabilities(true, true),
 		)
@@ -238,9 +238,9 @@ func TestSSEServer(t *testing.T) {
 
 		select {
 		case <-done:
-			// All sessionizer completed successfully
+			// All sessions completed successfully
 		case <-time.After(5 * time.Second):
-			t.Fatal("Timeout waiting for sessionizer to complete")
+			t.Fatal("Timeout waiting for sessions to complete")
 		}
 	})
 
