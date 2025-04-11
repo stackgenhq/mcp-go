@@ -150,7 +150,7 @@ type MCPServer struct {
 	notificationHandlers map[string]NotificationHandlerFunc
 	capabilities         serverCapabilities
 	paginationLimit      *int
-	sessions             sync.Map
+	sessionizer          Sessionizer
 	hooks                *Hooks
 }
 
@@ -186,7 +186,7 @@ func (s *MCPServer) RegisterSession(
 	session ClientSession,
 ) error {
 	sessionID := session.SessionID()
-	if _, exists := s.sessions.LoadOrStore(sessionID, session); exists {
+	if _, exists := s.sessionizer.LoadOrStore(sessionID, session); exists {
 		return fmt.Errorf("session %s is already registered", sessionID)
 	}
 	s.hooks.RegisterSession(ctx, session)
@@ -197,7 +197,7 @@ func (s *MCPServer) RegisterSession(
 func (s *MCPServer) UnregisterSession(
 	sessionID string,
 ) {
-	s.sessions.Delete(sessionID)
+	s.sessionizer.Delete(sessionID)
 }
 
 // sendNotificationToAllClients sends a notification to all the currently active clients.
@@ -215,16 +215,15 @@ func (s *MCPServer) sendNotificationToAllClients(
 		},
 	}
 
-	s.sessions.Range(func(k, v any) bool {
-		if session, ok := v.(ClientSession); ok && session.Initialized() {
+	for _, session := range s.sessionizer.All() {
+		if session.Initialized() {
 			select {
 			case session.NotificationChannel() <- notification:
 			default:
 				// TODO: log blocked channel in the future versions
 			}
 		}
-		return true
-	})
+	}
 }
 
 // SendNotificationToClient sends a notification to the current client
@@ -334,6 +333,12 @@ func WithInstructions(instructions string) ServerOption {
 	}
 }
 
+func WithSessionizer(sessionizer Sessionizer) ServerOption {
+	return func(s *MCPServer) {
+		s.sessionizer = sessionizer
+	}
+}
+
 // NewMCPServer creates a new MCP server instance with the given name, version and options
 func NewMCPServer(
 	name, version string,
@@ -354,6 +359,7 @@ func NewMCPServer(
 			prompts:   nil,
 			logging:   false,
 		},
+		sessionizer: &SyncMapSessionizer{},
 	}
 
 	for _, opt := range opts {
