@@ -121,13 +121,93 @@ func (c *SSEMCPClient) Start(ctx context.Context) error {
 	return nil
 }
 
+// processEventLine processes a single event line and returns the event type
+func (c *SSEMCPClient) processEventLine(line string) string {
+	if !strings.HasPrefix(line, "event:") {
+		return ""
+	}
+	return strings.TrimSpace(line[6:]) // Direct slice instead of TrimPrefix
+}
+
+// processDataLine processes a single data line and returns the data content
+func (c *SSEMCPClient) processDataLine(line string) string {
+	if !strings.HasPrefix(line, "data:") {
+		return ""
+	}
+	return strings.TrimSpace(line[5:]) // Direct slice instead of TrimPrefix
+}
+
+// handleEmptyLine processes an empty line in the SSE stream and returns whether to sleep
+func (c *SSEMCPClient) handleEmptyLine(emptyLineCount *int, event, data *string) bool {
+	*emptyLineCount++
+	// If we've seen multiple empty lines in a row, suggest a sleep
+	shouldSleep := *emptyLineCount > 3
+
+	// Empty line means end of event
+	if *event != "" && *data != "" {
+		c.handleSSEEvent(*event, *data)
+		*event = ""
+		*data = ""
+	}
+
+	return shouldSleep
+}
+
+// handleEOF handles EOF condition in the SSE stream
+func (c *SSEMCPClient) handleEOF(event, data string) bool {
+	if event != "" && data != "" {
+		c.handleSSEEvent(event, data)
+	}
+	// Add a small sleep before retrying on EOF
+	time.Sleep(100 * time.Millisecond)
+	return true
+}
+
+// SSEEvent represents a Server-Sent Event
+type sseEvent struct {
+	eventType string
+	data      string
+}
+
 // readSSE continuously reads the SSE stream and processes events.
 // It runs until the connection is closed or an error occurs.
 func (c *SSEMCPClient) readSSE(reader io.ReadCloser) {
 	defer reader.Close()
 
+	// Create channels for event processing
+	eventChan := make(chan sseEvent)
+	errorChan := make(chan error)
+
+	// Start the event reader in a separate goroutine
+	go c.readEvents(reader, eventChan, errorChan)
+
+	for {
+		select {
+		case <-c.done:
+			return
+		case event := <-eventChan:
+			c.handleSSEEvent(event.eventType, event.data)
+		case err := <-errorChan:
+			if err == io.EOF {
+				// Wait a bit before retrying on EOF
+				select {
+				case <-c.done:
+					return
+				case <-time.After(100 * time.Millisecond):
+					continue
+				}
+			}
+			fmt.Printf("SSE stream error: %v\n", err)
+			return
+		}
+	}
+}
+
+// readEvents reads from the SSE stream and sends events to the event channel
+func (c *SSEMCPClient) readEvents(reader io.Reader, eventChan chan<- sseEvent, errorChan chan<- error) {
 	br := bufio.NewReader(reader)
 	var event, data string
+	emptyLineCount := 0
 
 	for {
 		select {
@@ -136,38 +216,44 @@ func (c *SSEMCPClient) readSSE(reader io.ReadCloser) {
 		default:
 			line, err := br.ReadString('\n')
 			if err != nil {
-				if err == io.EOF {
-					// Process any pending event before exit
-					if event != "" && data != "" {
-						c.handleSSEEvent(event, data)
-					}
-					break
-				}
-				select {
-				case <-c.done:
-					return
-				default:
-					fmt.Printf("SSE stream error: %v\n", err)
-					return
-				}
+				errorChan <- err
+				return
 			}
 
-			// Remove only newline markers
+			// Reset empty line counter if we got data
+			if len(line) > 0 {
+				emptyLineCount = 0
+			}
+
 			line = strings.TrimRight(line, "\r\n")
 			if line == "" {
-				// Empty line means end of event
+				emptyLineCount++
+				// If we have a complete event, send it
 				if event != "" && data != "" {
-					c.handleSSEEvent(event, data)
-					event = ""
-					data = ""
+					select {
+					case eventChan <- sseEvent{eventType: event, data: data}:
+						event = ""
+						data = ""
+					case <-c.done:
+						return
+					}
+				}
+				// If we've seen multiple empty lines, wait a bit
+				if emptyLineCount > 3 {
+					select {
+					case <-time.After(50 * time.Millisecond):
+					case <-c.done:
+						return
+					}
 				}
 				continue
 			}
 
-			if strings.HasPrefix(line, "event:") {
-				event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-			} else if strings.HasPrefix(line, "data:") {
-				data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			// Process event and data lines
+			if newEvent := c.processEventLine(line); newEvent != "" {
+				event = newEvent
+			} else if newData := c.processDataLine(line); newData != "" {
+				data = newData
 			}
 		}
 	}
