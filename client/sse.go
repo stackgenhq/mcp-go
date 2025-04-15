@@ -121,46 +121,12 @@ func (c *SSEMCPClient) Start(ctx context.Context) error {
 	return nil
 }
 
-// processEventLine processes a single event line and returns the event type
-func (c *SSEMCPClient) processEventLine(line string) string {
-	if !strings.HasPrefix(line, "event:") {
+// processLine processes a line with a given prefix and returns the trimmed content
+func (*SSEMCPClient) processLine(line, prefix string) string {
+	if !strings.HasPrefix(line, prefix) {
 		return ""
 	}
-	return strings.TrimSpace(line[6:]) // Direct slice instead of TrimPrefix
-}
-
-// processDataLine processes a single data line and returns the data content
-func (c *SSEMCPClient) processDataLine(line string) string {
-	if !strings.HasPrefix(line, "data:") {
-		return ""
-	}
-	return strings.TrimSpace(line[5:]) // Direct slice instead of TrimPrefix
-}
-
-// handleEmptyLine processes an empty line in the SSE stream and returns whether to sleep
-func (c *SSEMCPClient) handleEmptyLine(emptyLineCount *int, event, data *string) bool {
-	*emptyLineCount++
-	// If we've seen multiple empty lines in a row, suggest a sleep
-	shouldSleep := *emptyLineCount > 3
-
-	// Empty line means end of event
-	if *event != "" && *data != "" {
-		c.handleSSEEvent(*event, *data)
-		*event = ""
-		*data = ""
-	}
-
-	return shouldSleep
-}
-
-// handleEOF handles EOF condition in the SSE stream
-func (c *SSEMCPClient) handleEOF(event, data string) bool {
-	if event != "" && data != "" {
-		c.handleSSEEvent(event, data)
-	}
-	// Add a small sleep before retrying on EOF
-	time.Sleep(100 * time.Millisecond)
-	return true
+	return strings.TrimSpace(line[len(prefix):])
 }
 
 // SSEEvent represents a Server-Sent Event
@@ -250,9 +216,9 @@ func (c *SSEMCPClient) readEvents(reader io.Reader, eventChan chan<- sseEvent, e
 			}
 
 			// Process event and data lines
-			if newEvent := c.processEventLine(line); newEvent != "" {
+			if newEvent := c.processLine(line, "event:"); newEvent != "" {
 				event = newEvent
-			} else if newData := c.processDataLine(line); newData != "" {
+			} else if newData := c.processLine(line, "data:"); newData != "" {
 				data = newData
 			}
 		}
